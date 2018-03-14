@@ -84,7 +84,12 @@ var globalInsecure = false
 
 var httpClient *http.Client
 
+var conf_json_flat *bool
+
+var useElasticOutput *bool
+
 var elasticClient *elastic.Client
+
 var elasticIndex string = "ssllabs-scan"
 
 type LabsError struct {
@@ -771,8 +776,23 @@ func (manager *Manager) run() {
 				manager.results.reports = append(manager.results.reports, *e.report)
 				manager.results.responses = append(manager.results.responses, e.report.rawJSON)
 				manager.FrontendEventChannel <- Event{e.host, ASSESSMENT_COMPLETE, e.report}
-				if (elasticClient.IsRunning()) {
-					elasticClient.Index().Index(elasticIndex).Type(elasticIndex).BodyJson(e.report.rawJSON).Do(context.TODO())
+				if *useElasticOutput {
+					var data string
+					if *conf_json_flat {
+						var err error
+						data, err = prepareDataForElastic(e.report.rawJSON)
+						if err != nil {
+							log.Printf("[ERROR] Unable to prepare the json data for elasticsearch: %v", err)
+							continue
+						}
+						} else {
+							data = e.report.rawJSON
+						}
+					_, err = elasticClient.Index().Index(elasticIndex).Type(elasticIndex).BodyJson(data).Do(context.TODO())
+					if err != nil {
+						log.Printf("[ERROR] Unable to push json data to elasticsearch: %v", err)
+						continue
+					}
 				}
 				if logLevel >= LOG_DEBUG {
 					log.Printf("[DEBUG] Active assessments: %v (more: %v)", activeAssessments, moreAssessments)
@@ -816,6 +836,16 @@ func (manager *Manager) run() {
 	}
 }
 
+func prepareDataForElastic(rawJson string) (string, error) {
+	// Flatten the JSON structure, recursively
+	flattened, err := FlattenString(rawJson, "")
+	if err != nil {
+		// Handle error
+		return "", err
+	}
+	return flattened, nil
+}
+
 func parseLogLevel(level string) int {
 	switch {
 	case level == "error":
@@ -834,50 +864,95 @@ func parseLogLevel(level string) int {
 	return -1
 }
 
-func flattenJSON(inputJSON map[string]interface{}, rootKey string, flattened *map[string]interface{}) {
-	var keysep = "." // Char to separate keys
-	var Q = "\""     // Char to envelope strings
-
-	for rkey, value := range inputJSON {
-		key := rootKey + rkey
-		if _, ok := value.(string); ok {
-			(*flattened)[key] = Q + value.(string) + Q
-		} else if _, ok := value.(float64); ok {
-			(*flattened)[key] = fmt.Sprintf("%.f", value)
-		} else if _, ok := value.(bool); ok {
-			(*flattened)[key] = value.(bool)
-		} else if _, ok := value.([]interface{}); ok {
-			for i := 0; i < len(value.([]interface{})); i++ {
-				aKey := key + keysep + strconv.Itoa(i)
-				if _, ok := value.([]interface{})[i].(string); ok {
-					(*flattened)[aKey] = Q + value.([]interface{})[i].(string) + Q
-				} else if _, ok := value.([]interface{})[i].(float64); ok {
-					(*flattened)[aKey] = value.([]interface{})[i].(float64)
-				} else if _, ok := value.([]interface{})[i].(bool); ok {
-					(*flattened)[aKey] = value.([]interface{})[i].(bool)
-				} else {
-					flattenJSON(value.([]interface{})[i].(map[string]interface{}), key+keysep+strconv.Itoa(i)+keysep, flattened)
-				}
+func flatten(top bool, flatMap map[string]interface{}, nested interface{}, prefix string) error {
+	assign := func(newKey string, v interface{}) error {
+		switch v.(type) {
+		case map[string]interface{}, []interface{}:
+			if err := flatten(false, flatMap, v, newKey); err != nil {
+				return err
 			}
-		} else if value == nil {
-			(*flattened)[key] = nil
-		} else {
-			flattenJSON(value.(map[string]interface{}), key+keysep, flattened)
+		default:
+			flatMap[newKey] = v
 		}
+
+		return nil
 	}
+
+	switch nested.(type) {
+	case map[string]interface{}:
+		for k, v := range nested.(map[string]interface{}) {
+			newKey := enkey(top, prefix, k)
+			assign(newKey, v)
+		}
+	case []interface{}:
+		for i, v := range nested.([]interface{}) {
+			newKey := enkey(top, prefix, strconv.Itoa(i))
+			assign(newKey, v)
+		}
+	default:
+		return nil
+	}
+
+	return nil
+}
+
+func enkey(top bool, prefix, subkey string) string {
+	key := prefix
+
+	if top {
+		key += subkey
+	} else {
+		key += "." + subkey
+	}
+
+	return key
+}
+
+// Flatten generates a flat map from a nested one.  The original may include values of type map, slice and scalar,
+// but not struct.  Keys in the flat map will be a compound of descending map keys and slice iterations.
+// The presentation of keys is set by style.  A prefix is joined to each key.
+func Flatten(nested map[string]interface{}, prefix string) (map[string]interface{}, error) {
+	flatmap := make(map[string]interface{})
+
+	err := flatten(true, flatmap, nested, prefix)
+	if err != nil {
+		return nil, err
+	}
+
+	return flatmap, nil
+}
+
+// FlattenString generates a flat JSON map from a nested one.  Keys in the flat map will be a compound of
+// descending map keys and slice iterations.  The presentation of keys is set by style.  A prefix is joined
+// to each key.
+func FlattenString(nestedstr, prefix string) (string, error) {
+	var nested map[string]interface{}
+	err := json.Unmarshal([]byte(nestedstr), &nested)
+	if err != nil {
+		return "", err
+	}
+
+	flatmap, err := Flatten(nested, prefix)
+	if err != nil {
+		return "", err
+	}
+
+	flatb, err := json.Marshal(&flatmap)
+	if err != nil {
+		return "", err
+	}
+
+	return string(flatb), nil
 }
 
 func flattenAndFormatJSON(inputJSON []byte) *[]string {
-	var flattened = make(map[string]interface{})
-
-	mappedJSON := map[string]interface{}{}
-	err := json.Unmarshal(inputJSON, &mappedJSON)
+	var nested map[string]interface{}
+	err := json.Unmarshal([]byte(inputJSON), &nested)
 	if err != nil {
-		log.Fatalf("[ERROR] Reconstitution of JSON failed: %v", err)
+		panic(err)
 	}
-
 	// Flatten the JSON structure, recursively
-	flattenJSON(mappedJSON, "", &flattened)
+	flattened, err := Flatten(nested, "")
 
 	// Make a sorted index, so we can print keys in order
 	kIndex := make([]string, len(flattened))
@@ -936,12 +1011,23 @@ func validateHostname(hostname string) bool {
 }
 
 func ConnectToElastic(hostname *string, index *string, username *string, password *string, mapping string) *elastic.Client {
-	client, err := elastic.NewClient(elastic.SetURL(*hostname),
-					 elastic.SetSniff(false),
-					 elastic.SetErrorLog(log.New(os.Stderr, "ELASTIC ", log.LstdFlags)),
-					 elastic.SetBasicAuth(*username, *password))
-	if err != nil {
-		log.Fatalf("[ERROR] Unable to connecto to Elasticsearch cluster at %v with user %v", hostname, username)
+	var client *elastic.Client
+	var err error
+	if len(*username) > 0 {
+		client, err = elastic.NewClient(elastic.SetURL(*hostname),
+						elastic.SetSniff(false),
+						elastic.SetErrorLog(log.New(os.Stderr, "ELASTIC ", log.LstdFlags)),
+						elastic.SetBasicAuth(*username, *password))
+		if err != nil {
+			log.Fatalf("[ERROR] Unable to connecto to Elasticsearch cluster at %v with username %v", *hostname, *username)
+		}
+	} else {
+		client, err = elastic.NewClient(elastic.SetURL(*hostname),
+						elastic.SetSniff(false),
+						elastic.SetErrorLog(log.New(os.Stderr, "ELASTIC ", log.LstdFlags)))
+		if err != nil {
+			log.Fatalf("[ERROR] Unable to connecto to Elasticsearch cluster at %v with no authentication", *hostname)
+		}
 	}
 
 	exists, err := client.IndexExists(*index).Do(context.TODO())
@@ -951,6 +1037,29 @@ func ConnectToElastic(hostname *string, index *string, username *string, passwor
 
 	if exists {
 		return client
+	}
+
+	if len(mapping) < 2 {
+		mapping = `{"settings": {"index.mapping.total_fields.limit": 25000},
+			"mappings": {"ssllabs-scan": {"dynamic_templates": [{
+					"strings_as_text2": {
+							"match_mapping_type": "string",
+							"mapping": {"type": "text","norms": false
+					}}},{
+					"number_as_date1": {
+							"match_mapping_type": "long",
+							"match_pattern": "regex",
+							"match":   ".*not(After|Before)",
+							"mapping": {
+								"type": "date","format": "epoch_millis"
+					}}},{
+					"number_as_date2": {
+							"match_mapping_type": "long",
+							"match_pattern": "regex",
+							"match":   ".*(start|Start|test)Time",
+							"mapping": {
+								"type": "date","format": "epoch_millis"
+		}}}]}}}`
 	}
 
 	res, err := client.CreateIndex(*index).
@@ -970,18 +1079,18 @@ func ConnectToElastic(hostname *string, index *string, username *string, passwor
 
 func main() {
 	var conf_api = flag.String("api", "BUILTIN", "API entry point, for example https://www.example.com/api/")
-	var conf_elasticsearch = flag.Bool("elasticsearch", false, "Output results to elasticsearch server")
+	useElasticOutput = flag.Bool("elasticsearch", false, "Output results to elasticsearch server")
 	var conf_elastic_host = flag.String("elastic_host", "http://127.0.0.1:9200", "Send output results to this elastic host")
 	var conf_elastic_index = flag.String("elastic_index", "ssllabs-scan", "Send output results to this elastic index")
 	var conf_elastic_user = flag.String("elastic_user", "", "Elasticsearch auth username")
 	var conf_elastic_pwd = flag.String("elastic_pwd", "", "Elasticsearch auth password")
-	var conf_elastic_mapping_file = flag.String("elastic_mapping", "elasticsearch_mapping.json", "path to the Elasticsearch mapping file")
+	var conf_elastic_mapping_file = flag.String("elastic_mapping", "", "Path to the Elasticsearch mapping file")
 	var conf_grade = flag.Bool("grade", false, "Output only the hostname: grade")
 	var conf_hostcheck = flag.Bool("hostcheck", false, "If true, host resolution failure will result in a fatal error.")
 	var conf_hostfile = flag.String("hostfile", "", "File containing hosts to scan (one per line)")
 	var conf_ignore_mismatch = flag.Bool("ignore-mismatch", false, "If true, certificate hostname mismatch does not stop assessment.")
 	var conf_insecure = flag.Bool("insecure", false, "Skip certificate validation. For use in development only. Do not use.")
-	var conf_json_flat = flag.Bool("json-flat", false, "Output results in flattened JSON format")
+	conf_json_flat = flag.Bool("json-flat", false, "Output results in flattened JSON format")
 	var conf_quiet = flag.Bool("quiet", false, "Disable status messages (logging)")
 	var conf_usecache = flag.Bool("usecache", false, "If true, accept cached results (if available), else force live scan.")
 	var conf_maxage = flag.Int("maxage", 0, "Maximum acceptable age of cached results, in hours. A zero value is ignored.")
@@ -1052,12 +1161,15 @@ func main() {
 		globalInsecure = *conf_insecure
 	}
 
-	if *conf_elasticsearch {
-		content, err := ioutil.ReadFile(*conf_elastic_mapping_file)
-		if err != nil {
-			log.Fatal(err)
+	if *useElasticOutput {
+		mapping := ""
+		if len(*conf_elastic_mapping_file) > 0 {
+			content, err := ioutil.ReadFile(*conf_elastic_mapping_file)
+			if err != nil {
+				log.Fatal(err)
+			}
+			mapping = string(content)
 		}
-		mapping := string(content)
 		elasticClient = ConnectToElastic(conf_elastic_host, conf_elastic_index, conf_elastic_user, conf_elastic_pwd, mapping)
 	}
 
@@ -1066,7 +1178,7 @@ func main() {
 
 	// Respond to events until all the work is done.
 	for {
-		event, running := <-manager.FrontendEventChannel
+		_, running := <-manager.FrontendEventChannel
 		if running == false {
 			var results []byte
 			var err error
@@ -1117,7 +1229,6 @@ func main() {
 					results := []byte(manager.results.responses[i])
 
 					flattened := flattenAndFormatJSON(results)
-
 					// Print the flattened data
 					fmt.Println(*flattened)
 				}
@@ -1147,10 +1258,6 @@ func main() {
 			}
 
 			return
-		} else {
-			if logLevel >= LOG_INFO {
-				log.Println("[INFO] " + event.report.rawJSON)
-			}
 		}
 	}
 }
