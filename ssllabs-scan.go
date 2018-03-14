@@ -37,6 +37,8 @@ import "strings"
 import "sync/atomic"
 import "time"
 import "sort"
+import "github.com/olivere/elastic"
+import "golang.org/x/net/context"
 
 const (
 	LOG_NONE     = -1
@@ -81,6 +83,9 @@ var globalMaxAge = 0
 var globalInsecure = false
 
 var httpClient *http.Client
+
+var elasticClient *elastic.Client
+var elasticIndex string = "ssllabs-scan"
 
 type LabsError struct {
 	Field   string
@@ -765,7 +770,10 @@ func (manager *Manager) run() {
 
 				manager.results.reports = append(manager.results.reports, *e.report)
 				manager.results.responses = append(manager.results.responses, e.report.rawJSON)
-
+				manager.FrontendEventChannel <- Event{e.host, ASSESSMENT_COMPLETE, e.report}
+				if (elasticClient.IsRunning()) {
+					elasticClient.Index().Index(elasticIndex).Type(elasticIndex).BodyJson(e.report.rawJSON).Do(context.TODO())
+				}
 				if logLevel >= LOG_DEBUG {
 					log.Printf("[DEBUG] Active assessments: %v (more: %v)", activeAssessments, moreAssessments)
 				}
@@ -927,8 +935,47 @@ func validateHostname(hostname string) bool {
 	}
 }
 
+func ConnectToElastic(hostname *string, index *string, username *string, password *string, mapping string) *elastic.Client {
+	client, err := elastic.NewClient(elastic.SetURL(*hostname),
+					 elastic.SetSniff(false),
+					 elastic.SetErrorLog(log.New(os.Stderr, "ELASTIC ", log.LstdFlags)),
+					 elastic.SetBasicAuth(*username, *password))
+	if err != nil {
+		log.Fatalf("[ERROR] Unable to connecto to Elasticsearch cluster at %v with user %v", hostname, username)
+	}
+
+	exists, err := client.IndexExists(*index).Do(context.TODO())
+	if err != nil {
+		log.Fatalf("[ERROR] Unable to check if the elastic index exists or not")
+	}
+
+	if exists {
+		return client
+	}
+
+	res, err := client.CreateIndex(*index).
+			BodyString(mapping).
+			Do(context.TODO())
+
+	if err != nil {
+		log.Fatal(err)
+		log.Fatalf("[ERROR] Unable to create the index in elastic")
+	}
+	if !res.Acknowledged {
+		log.Fatalf("CreateIndex was not acknowledged. Check that timeout value is correct.")
+	}
+
+	return client
+}
+
 func main() {
 	var conf_api = flag.String("api", "BUILTIN", "API entry point, for example https://www.example.com/api/")
+	var conf_elasticsearch = flag.Bool("elasticsearch", false, "Output results to elasticsearch server")
+	var conf_elastic_host = flag.String("elastic_host", "http://127.0.0.1:9200", "Send output results to this elastic host")
+	var conf_elastic_index = flag.String("elastic_index", "ssllabs-scan", "Send output results to this elastic index")
+	var conf_elastic_user = flag.String("elastic_user", "", "Elasticsearch auth username")
+	var conf_elastic_pwd = flag.String("elastic_pwd", "", "Elasticsearch auth password")
+	var conf_elastic_mapping_file = flag.String("elastic_mapping", "elasticsearch_mapping.json", "path to the Elasticsearch mapping file")
 	var conf_grade = flag.Bool("grade", false, "Output only the hostname: grade")
 	var conf_hostcheck = flag.Bool("hostcheck", false, "If true, host resolution failure will result in a fatal error.")
 	var conf_hostfile = flag.String("hostfile", "", "File containing hosts to scan (one per line)")
@@ -1005,12 +1052,21 @@ func main() {
 		globalInsecure = *conf_insecure
 	}
 
+	if *conf_elasticsearch {
+		content, err := ioutil.ReadFile(*conf_elastic_mapping_file)
+		if err != nil {
+			log.Fatal(err)
+		}
+		mapping := string(content)
+		elasticClient = ConnectToElastic(conf_elastic_host, conf_elastic_index, conf_elastic_user, conf_elastic_pwd, mapping)
+	}
+
 	hp := NewHostProvider(hostnames)
 	manager := NewManager(hp)
 
 	// Respond to events until all the work is done.
 	for {
-		_, running := <-manager.FrontendEventChannel
+		event, running := <-manager.FrontendEventChannel
 		if running == false {
 			var results []byte
 			var err error
@@ -1091,6 +1147,10 @@ func main() {
 			}
 
 			return
+		} else {
+			if logLevel >= LOG_INFO {
+				log.Println("[INFO] " + event.report.rawJSON)
+			}
 		}
 	}
 }
