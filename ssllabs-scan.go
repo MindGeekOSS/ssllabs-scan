@@ -1042,9 +1042,9 @@ func ConnectToElastic(hostname *string, index *string, username *string, passwor
 	if len(mapping) < 2 {
 		mapping = `{"settings": {"index.mapping.total_fields.limit": 25000},
 			"mappings": {"ssllabs-scan": {"dynamic_templates": [{
-					"strings_as_text2": {
+					"strings_as_text": {
 							"match_mapping_type": "string",
-							"mapping": {"type": "text","norms": false
+							"mapping": {"type": "keyword", "ignore_above": 256, "index": true,"norms": false
 					}}},{
 					"number_as_date1": {
 							"match_mapping_type": "long",
