@@ -24,6 +24,7 @@ import "errors"
 import "encoding/json"
 import "flag"
 import "fmt"
+import "io"
 import "io/ioutil"
 import "bufio"
 import "os"
@@ -971,6 +972,38 @@ func flattenAndFormatJSON(inputJSON []byte) *[]string {
 	return &flatStrings
 }
 
+func downloadFromUrl(url *string) *string {
+	urlValue := *url
+	tokens := strings.Split(urlValue, "/")
+	fileName := tokens[len(tokens)-1]
+	log.Printf("[DEBUG] Downloading %s to %s", urlValue, fileName)
+
+	output, err := os.Create(fileName)
+	if err != nil {
+		log.Fatalf("[ERROR] Error while creating %s - %s", fileName, err)
+	}
+	defer output.Close()
+
+	response, err := http.Get(urlValue)
+	if err != nil {
+		log.Fatalf("[ERROR] Error while downloading %s - %s", urlValue, err)
+	}
+	defer response.Body.Close()
+
+	n, err := io.Copy(output, response.Body)
+	if err != nil {
+		log.Fatalf("[ERROR] Error while downloading %s - %s", urlValue, err)
+	}
+
+	log.Printf("[DEBUG] %d bytes downloaded...", n)
+	return &fileName
+}
+
+func downloadAndReadLines(url *string) ([]string, error) {
+	fileName := downloadFromUrl(url)
+	return readLines(fileName)
+}
+
 func readLines(path *string) ([]string, error) {
 	file, err := os.Open(*path)
 	if err != nil {
@@ -986,6 +1019,7 @@ func readLines(path *string) ([]string, error) {
 			lines = append(lines, line)
 		}
 	}
+	log.Printf("[DEBUG] %d domains found in specified file...", len(lines))
 	return lines, scanner.Err()
 }
 
@@ -1133,15 +1167,23 @@ func main() {
 	}
 
 	var hostnames []string
-
 	if *conf_hostfile != "" {
-		// Open file, and read it
-		var err error
-		hostnames, err = readLines(conf_hostfile)
+		// Check if file is actually URL
+		_, err := url.ParseRequestURI(*conf_hostfile)
 		if err != nil {
-			log.Fatalf("[ERROR] Reading from specified hostfile failed: %v", err)
+		   // Open file, and read it
+			var err error
+			hostnames, err = readLines(conf_hostfile)
+			if err != nil {
+				log.Fatalf("[ERROR] Reading from specified hostfile failed: %v", err)
+			}
+		} else {
+			var err error
+			hostnames, err = downloadAndReadLines(conf_hostfile)
+			if err != nil {
+				log.Fatalf("[ERROR] Reading from specified hostfile failed: %v", err)
+			}
 		}
-
 	} else {
 		// Read hostnames from the rest of the args
 		hostnames = flag.Args()
