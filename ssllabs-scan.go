@@ -401,7 +401,6 @@ func invokeGetRepeatedly(url string) (*http.Response, []byte, error) {
 			}
 
 			// Update current assessments.
-
 			headerValue := resp.Header.Get("X-Current-Assessments")
 			if headerValue != "" {
 				i, err := strconv.Atoi(headerValue)
@@ -421,7 +420,6 @@ func invokeGetRepeatedly(url string) (*http.Response, []byte, error) {
 			}
 
 			// Update maximum assessments.
-
 			headerValue = resp.Header.Get("X-Max-Assessments")
 			if headerValue != "" {
 				i, err := strconv.Atoi(headerValue)
@@ -445,7 +443,6 @@ func invokeGetRepeatedly(url string) (*http.Response, []byte, error) {
 			}
 
 			// Retrieve the response body.
-
 			defer resp.Body.Close()
 
 			body, err := ioutil.ReadAll(resp.Body)
@@ -471,12 +468,24 @@ func invokeGetRepeatedly(url string) (*http.Response, []byte, error) {
 					log.Printf("[DEBUG] HTTP request failed with EOF (ref#2)")
 				}
 			} else {
-				log.Fatalf("[ERROR] HTTP request failed: %v (ref#2)", err.Error())
+				if retryCount > 5 {
+					log.Fatalf("[ERROR] HTTP request failed after 5 retries: %v (ref#2)", err.Error())
+				} else {
+					invokeSleepTime(resp.StatusCode)
+				}
 			}
 
 			retryCount++
 		}
 	}
+}
+
+func invokeSleepTime(statusCode int) {
+	sleepTime := 15 + rand.Int31n(15)
+	if logLevel >= LOG_NOTICE {
+		log.Printf("[NOTICE] Sleeping for %v minutes after a %v response", sleepTime, statusCode)
+	}
+	time.Sleep(time.Duration(sleepTime) * time.Minute)
 }
 
 func invokeApi(command string) (*http.Response, []byte, error) {
@@ -495,14 +504,7 @@ func invokeApi(command string) (*http.Response, []byte, error) {
 		} else if (resp.StatusCode == 503) || (resp.StatusCode == 529) {
 			// In case of the overloaded server, randomize the sleep time so
 			// that some clients reconnect earlier and some later.
-
-			sleepTime := 15 + rand.Int31n(15)
-
-			if logLevel >= LOG_NOTICE {
-				log.Printf("[NOTICE] Sleeping for %v minutes after a %v response", sleepTime, resp.StatusCode)
-			}
-
-			time.Sleep(time.Duration(sleepTime) * time.Minute)
+			invokeSleepTime(resp.StatusCode)
 		} else if (resp.StatusCode != 200) && (resp.StatusCode != 400) {
 			log.Fatalf("[ERROR] Unexpected response status code %v", resp.StatusCode)
 		} else {
@@ -786,10 +788,15 @@ func (manager *Manager) run() {
 							log.Printf("[ERROR] Unable to prepare the json data for elasticsearch: %v", err)
 							continue
 						}
-						} else {
-							data = e.report.rawJSON
-						}
-					_, err = elasticClient.Index().Index(elasticIndex).Type(elasticIndex).BodyJson(data).Do(context.TODO())
+					} else {
+						data = e.report.rawJSON
+					}
+					_, err = elasticClient.Index().
+											Index(elasticIndex).
+											Type(elasticIndex).
+											Id(e.host).
+											BodyJson(data).
+											Do(context.TODO())
 					if err != nil {
 						log.Printf("[ERROR] Unable to push json data to elasticsearch: %v", err)
 						continue
@@ -838,8 +845,8 @@ func (manager *Manager) run() {
 }
 
 func prepareDataForElastic(rawJson string) (string, error) {
-	// Flatten the JSON structure, recursively
-	flattened, err := FlattenString(rawJson, "")
+	// flatten the JSON structure, recursively
+	flattened, err := flattenString(rawJson, "")
 	if err != nil {
 		// Handle error
 		return "", err
@@ -865,11 +872,11 @@ func parseLogLevel(level string) int {
 	return -1
 }
 
-func flatten(top bool, flatMap map[string]interface{}, nested interface{}, prefix string) error {
+func flattenJson(top bool, flatMap map[string]interface{}, nested interface{}, prefix string) error {
 	assign := func(newKey string, v interface{}) error {
 		switch v.(type) {
 		case map[string]interface{}, []interface{}:
-			if err := flatten(false, flatMap, v, newKey); err != nil {
+			if err := flattenJson(false, flatMap, v, newKey); err != nil {
 				return err
 			}
 		default:
@@ -909,13 +916,13 @@ func enkey(top bool, prefix, subkey string) string {
 	return key
 }
 
-// Flatten generates a flat map from a nested one.  The original may include values of type map, slice and scalar,
+// flatten generates a flat map from a nested one.  The original may include values of type map, slice and scalar,
 // but not struct.  Keys in the flat map will be a compound of descending map keys and slice iterations.
 // The presentation of keys is set by style.  A prefix is joined to each key.
-func Flatten(nested map[string]interface{}, prefix string) (map[string]interface{}, error) {
+func flatten(nested map[string]interface{}, prefix string) (map[string]interface{}, error) {
 	flatmap := make(map[string]interface{})
 
-	err := flatten(true, flatmap, nested, prefix)
+	err := flattenJson(true, flatmap, nested, prefix)
 	if err != nil {
 		return nil, err
 	}
@@ -923,17 +930,17 @@ func Flatten(nested map[string]interface{}, prefix string) (map[string]interface
 	return flatmap, nil
 }
 
-// FlattenString generates a flat JSON map from a nested one.  Keys in the flat map will be a compound of
+// flattenString generates a flat JSON map from a nested one.  Keys in the flat map will be a compound of
 // descending map keys and slice iterations.  The presentation of keys is set by style.  A prefix is joined
 // to each key.
-func FlattenString(nestedstr, prefix string) (string, error) {
+func flattenString(nestedstr, prefix string) (string, error) {
 	var nested map[string]interface{}
 	err := json.Unmarshal([]byte(nestedstr), &nested)
 	if err != nil {
 		return "", err
 	}
 
-	flatmap, err := Flatten(nested, prefix)
+	flatmap, err := flatten(nested, prefix)
 	if err != nil {
 		return "", err
 	}
@@ -952,8 +959,8 @@ func flattenAndFormatJSON(inputJSON []byte) *[]string {
 	if err != nil {
 		panic(err)
 	}
-	// Flatten the JSON structure, recursively
-	flattened, err := Flatten(nested, "")
+	// flatten the JSON structure, recursively
+	flattened, err := flatten(nested, "")
 
 	// Make a sorted index, so we can print keys in order
 	kIndex := make([]string, len(flattened))
@@ -1019,7 +1026,7 @@ func readLines(path *string) ([]string, error) {
 			lines = append(lines, line)
 		}
 	}
-	log.Printf("[DEBUG] %d domains found in specified file...", len(lines))
+
 	return lines, scanner.Err()
 }
 
@@ -1111,9 +1118,24 @@ func ConnectToElastic(hostname *string, index *string, username *string, passwor
 	return client
 }
 
+func removeDuplicatesUnordered(elements []string) []string {
+    encountered := map[string]bool{}
+
+    // Create a map of all unique elements.
+    for v:= range elements {
+        encountered[elements[v]] = true
+    }
+
+    // Place all keys from the map into a slice.
+    result := []string{}
+    for key, _ := range encountered {
+        result = append(result, key)
+    }
+    return result
+}
+
 func main() {
 	var conf_api = flag.String("api", "BUILTIN", "API entry point, for example https://www.example.com/api/")
-	useElasticOutput = flag.Bool("elasticsearch", false, "Output results to elasticsearch server")
 	var conf_elastic_host = flag.String("elastic_host", "http://127.0.0.1:9200", "Send output results to this elastic host")
 	var conf_elastic_index = flag.String("elastic_index", "ssllabs-scan", "Send output results to this elastic index")
 	var conf_elastic_user = flag.String("elastic_user", "", "Elasticsearch auth username")
@@ -1124,12 +1146,13 @@ func main() {
 	var conf_hostfile = flag.String("hostfile", "", "File containing hosts to scan (one per line)")
 	var conf_ignore_mismatch = flag.Bool("ignore-mismatch", false, "If true, certificate hostname mismatch does not stop assessment.")
 	var conf_insecure = flag.Bool("insecure", false, "Skip certificate validation. For use in development only. Do not use.")
-	conf_json_flat = flag.Bool("json-flat", false, "Output results in flattened JSON format")
 	var conf_quiet = flag.Bool("quiet", false, "Disable status messages (logging)")
 	var conf_usecache = flag.Bool("usecache", false, "If true, accept cached results (if available), else force live scan.")
 	var conf_maxage = flag.Int("maxage", 0, "Maximum acceptable age of cached results, in hours. A zero value is ignored.")
 	var conf_verbosity = flag.String("verbosity", "info", "Configure log verbosity: error, notice, info, debug, or trace.")
 	var conf_version = flag.Bool("version", false, "Print version and API location information and exit")
+	useElasticOutput = flag.Bool("elasticsearch", false, "Output results to elasticsearch server")
+	conf_json_flat = flag.Bool("json-flat", false, "Output results in flattened JSON format")
 
 	flag.Parse()
 
@@ -1187,7 +1210,15 @@ func main() {
 	} else {
 		// Read hostnames from the rest of the args
 		hostnames = flag.Args()
+		var splitted_hostnames []string
+		for _, host := range hostnames {
+			splitted_hostnames = append(splitted_hostnames, strings.Fields(host)...)
+		}
+		hostnames = splitted_hostnames
 	}
+	hostnames = removeDuplicatesUnordered(hostnames)
+	log.Printf("[DEBUG] %d domain(s) found in specified input...", len(hostnames))
+
 
 	if *conf_hostcheck {
 		// Validate all hostnames before we attempt to test them. At least
