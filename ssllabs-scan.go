@@ -19,27 +19,28 @@
 
 package main
 
+import "bufio"
 import "crypto/tls"
-import "errors"
 import "encoding/json"
+import "errors"
 import "flag"
 import "fmt"
+import "github.com/olivere/elastic"
+import "golang.org/x/net/context"
 import "io"
 import "io/ioutil"
-import "bufio"
-import "os"
 import "log"
 import "math/rand"
 import "net"
 import "net/http"
 import "net/url"
+import "os"
+import "regexp"
+import "sort"
 import "strconv"
 import "strings"
 import "sync/atomic"
 import "time"
-import "sort"
-import "github.com/olivere/elastic"
-import "golang.org/x/net/context"
 
 const (
 	LOG_NONE     = -1
@@ -92,6 +93,10 @@ var useElasticOutput *bool
 var elasticClient *elastic.Client
 
 var elasticIndex string = "ssllabs-scan"
+
+var exclude_pattern *regexp.Regexp = nil
+
+var include_pattern *regexp.Regexp = nil
 
 type LabsError struct {
 	Field   string
@@ -785,8 +790,8 @@ func (manager *Manager) run() {
 						var err error
 						data, err = prepareDataForElastic(e.report.rawJSON)
 						if err != nil {
-							log.Printf("[ERROR] Unable to prepare the json data for elasticsearch: %v", err)
-							continue
+							log.Fatalf("[ERROR] Unable to prepare the json data for elasticsearch: %v", err)
+							break
 						}
 					} else {
 						data = e.report.rawJSON
@@ -798,8 +803,8 @@ func (manager *Manager) run() {
 											BodyJson(data).
 											Do(context.TODO())
 					if err != nil {
-						log.Printf("[ERROR] Unable to push json data to elasticsearch: %v", err)
-						continue
+						log.Fatalf("[ERROR] Unable to push json data to elasticsearch: %v", err)
+						break
 					}
 				}
 				if logLevel >= LOG_DEBUG {
@@ -874,6 +879,15 @@ func parseLogLevel(level string) int {
 
 func flattenJson(top bool, flatMap map[string]interface{}, nested interface{}, prefix string) error {
 	assign := func(newKey string, v interface{}) error {
+		if exclude_pattern != nil && exclude_pattern.MatchString(newKey) {
+			if include_pattern == nil {
+				return nil
+			}
+		} else if exclude_pattern == nil && include_pattern != nil {
+			if !include_pattern.MatchString(newKey) {
+				return nil
+			}
+		}
 		switch v.(type) {
 		case map[string]interface{}, []interface{}:
 			if err := flattenJson(false, flatMap, v, newKey); err != nil {
@@ -1151,6 +1165,8 @@ func main() {
 	var conf_maxage = flag.Int("maxage", 0, "Maximum acceptable age of cached results, in hours. A zero value is ignored.")
 	var conf_verbosity = flag.String("verbosity", "info", "Configure log verbosity: error, notice, info, debug, or trace.")
 	var conf_version = flag.Bool("version", false, "Print version and API location information and exit")
+	var exclude = flag.String("exclude", "", "Exclude certain keys from the output (regex)")
+	var include = flag.String("include", "", "Inluce only certain keys in the output (regex)")
 	useElasticOutput = flag.Bool("elasticsearch", false, "Output results to elasticsearch server")
 	conf_json_flat = flag.Bool("json-flat", false, "Output results in flattened JSON format")
 
@@ -1178,6 +1194,14 @@ func main() {
 
 	if *conf_maxage != 0 {
 		globalMaxAge = *conf_maxage
+	}
+
+	if *exclude != "" {
+		exclude_pattern = regexp.MustCompile(string(*exclude))
+	}
+
+	if *include != "" {
+		include_pattern = regexp.MustCompile(string(*include))
 	}
 
 	// Verify that the API entry point is a URL.
