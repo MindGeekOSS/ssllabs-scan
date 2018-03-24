@@ -781,16 +781,10 @@ func (manager *Manager) run() {
 
 				activeAssessments--
 
-				var data string
-				if *conf_json_flat {
-					var err error
-					data, err = prepareData(e.report.rawJSON)
-					if err != nil {
-						log.Fatalf("[ERROR] Unable to prepare the json data: %v", err)
-						break
-					}
-				} else {
-					data = e.report.rawJSON
+				data, err := prepareData(e.report.rawJSON)
+				if err != nil {
+					log.Fatalf("[ERROR] Unable to prepare the json data: %v", err)
+					break
 				}
 				manager.results.reports = append(manager.results.reports, *e.report)
 				manager.results.responses = append(manager.results.responses, data)
@@ -853,13 +847,26 @@ func (manager *Manager) run() {
 }
 
 func prepareData(rawJson string) (string, error) {
-	// flatten the JSON structure, recursively
-	flattened, err := flattenString(rawJson, "")
+	var nested map[string]interface{}
+	err := json.Unmarshal([]byte(rawJson), &nested)
 	if err != nil {
-		// Handle error
 		return "", err
 	}
-	return flattened, nil
+	flattened, err := flatten(nested, "")
+	if err != nil {
+		return "", err
+	}
+
+	if !*conf_json_flat {
+		flattened = Unflatten(flattened, SplitByDot)
+	}
+
+	flatb, err := json.Marshal(&flattened)
+	if err != nil {
+		return "", err
+	}
+
+        return string(flatb), nil
 }
 
 func parseLogLevel(level string) int {
@@ -878,6 +885,55 @@ func parseLogLevel(level string) int {
 
 	log.Fatalf("[ERROR] Unrecognized log level: %v", level)
 	return -1
+}
+
+func SplitByDot(k string) []string { return strings.Split(k, ".") }
+
+type TokenizerFunc func(string) []string
+
+func Unflatten(m map[string]interface{}, tf TokenizerFunc) map[string]interface{} {
+	var tree = make(map[string]interface{})
+	for k, v := range m {
+		ks := tf(k)
+		tr := tree
+		for i, tk := range ks[:len(ks)-1] {
+			next := ks[i+1]
+			if index, err := strconv.Atoi(next); err == nil {
+				array, ok := tr[tk]
+				if !ok {
+					arraynew := make([]map[string]interface{}, 0)
+					trnew := make(map[string]interface{})
+					arraynew = append(arraynew, trnew)
+					tr[tk] = arraynew
+					tr = trnew
+				} else {
+					arrn := array.([]map[string]interface{})
+					length := len(arrn)
+					var trnew map[string]interface{}
+					if (index >= length) {
+						trnew = make(map[string]interface{})
+						arrn = append(arrn, trnew)
+						tr[tk] = arrn
+					} else {
+						trnew = arrn[index]
+					}
+					tr = trnew
+				}
+			} else {
+				if _, err := strconv.Atoi(tk); err == nil {
+					continue
+				}
+				trnew, ok := tr[tk]
+				if !ok {
+					trnew = make(map[string]interface{})
+					tr[tk] = trnew
+				}
+				tr = trnew.(map[string]interface{})
+			}
+		}
+		tr[ks[len(ks)-1]] = v
+	}
+	return tree
 }
 
 func flattenJson(top bool, flatMap map[string]interface{}, nested interface{}, prefix string) error {
@@ -945,29 +1001,6 @@ func flatten(nested map[string]interface{}, prefix string) (map[string]interface
 	}
 
 	return flatmap, nil
-}
-
-// flattenString generates a flat JSON map from a nested one.  Keys in the flat map will be a compound of
-// descending map keys and slice iterations.  The presentation of keys is set by style.  A prefix is joined
-// to each key.
-func flattenString(nestedstr, prefix string) (string, error) {
-	var nested map[string]interface{}
-	err := json.Unmarshal([]byte(nestedstr), &nested)
-	if err != nil {
-		return "", err
-	}
-
-	flatmap, err := flatten(nested, prefix)
-	if err != nil {
-		return "", err
-	}
-
-	flatb, err := json.Marshal(&flatmap)
-	if err != nil {
-		return "", err
-	}
-
-	return string(flatb), nil
 }
 
 func flattenAndFormatJSON(inputJSON []byte) *[]string {
