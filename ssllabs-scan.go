@@ -781,21 +781,21 @@ func (manager *Manager) run() {
 
 				activeAssessments--
 
+				var data string
+				if *conf_json_flat {
+					var err error
+					data, err = prepareData(e.report.rawJSON)
+					if err != nil {
+						log.Fatalf("[ERROR] Unable to prepare the json data: %v", err)
+						break
+					}
+				} else {
+					data = e.report.rawJSON
+				}
 				manager.results.reports = append(manager.results.reports, *e.report)
-				manager.results.responses = append(manager.results.responses, e.report.rawJSON)
+				manager.results.responses = append(manager.results.responses, data)
 				manager.FrontendEventChannel <- Event{e.host, ASSESSMENT_COMPLETE, e.report}
 				if *useElasticOutput {
-					var data string
-					if *conf_json_flat {
-						var err error
-						data, err = prepareDataForElastic(e.report.rawJSON)
-						if err != nil {
-							log.Fatalf("[ERROR] Unable to prepare the json data for elasticsearch: %v", err)
-							break
-						}
-					} else {
-						data = e.report.rawJSON
-					}
 					_, err = elasticClient.Index().
 											Index(elasticIndex).
 											Type(elasticIndex).
@@ -805,6 +805,9 @@ func (manager *Manager) run() {
 					if err != nil {
 						log.Fatalf("[ERROR] Unable to push json data to elasticsearch: %v", err)
 						break
+					}
+					if logLevel >= LOG_DEBUG {
+						log.Printf("[DEBUG] Pushed %v to elasticsearch index %v", e.host, elasticIndex)
 					}
 				}
 				if logLevel >= LOG_DEBUG {
@@ -849,7 +852,7 @@ func (manager *Manager) run() {
 	}
 }
 
-func prepareDataForElastic(rawJson string) (string, error) {
+func prepareData(rawJson string) (string, error) {
 	// flatten the JSON structure, recursively
 	flattened, err := flattenString(rawJson, "")
 	if err != nil {
@@ -879,21 +882,21 @@ func parseLogLevel(level string) int {
 
 func flattenJson(top bool, flatMap map[string]interface{}, nested interface{}, prefix string) error {
 	assign := func(newKey string, v interface{}) error {
-		if exclude_pattern != nil && exclude_pattern.MatchString(newKey) {
-			if include_pattern == nil {
-				return nil
-			}
-		} else if exclude_pattern == nil && include_pattern != nil {
-			if !include_pattern.MatchString(newKey) {
-				return nil
-			}
-		}
 		switch v.(type) {
 		case map[string]interface{}, []interface{}:
 			if err := flattenJson(false, flatMap, v, newKey); err != nil {
 				return err
 			}
 		default:
+			if exclude_pattern != nil && exclude_pattern.MatchString(newKey) {
+				if include_pattern == nil {
+					return nil
+				}
+			} else if exclude_pattern == nil && include_pattern != nil {
+				if !include_pattern.MatchString(newKey) {
+					return nil
+				}
+			}
 			flatMap[newKey] = v
 		}
 
@@ -997,7 +1000,9 @@ func downloadFromUrl(url *string) *string {
 	urlValue := *url
 	tokens := strings.Split(urlValue, "/")
 	fileName := tokens[len(tokens)-1]
-	log.Printf("[DEBUG] Downloading %s to %s", urlValue, fileName)
+	if logLevel >= LOG_DEBUG {
+		log.Printf("[DEBUG] Downloading %s to %s", urlValue, fileName)
+	}
 
 	output, err := os.Create(fileName)
 	if err != nil {
@@ -1016,7 +1021,9 @@ func downloadFromUrl(url *string) *string {
 		log.Fatalf("[ERROR] Error while downloading %s - %s", urlValue, err)
 	}
 
-	log.Printf("[DEBUG] %d bytes downloaded...", n)
+	if logLevel >= LOG_DEBUG {
+		log.Printf("[DEBUG] %d bytes downloaded...", n)
+	}
 	return &fileName
 }
 
@@ -1196,12 +1203,30 @@ func main() {
 		globalMaxAge = *conf_maxage
 	}
 
+	if *conf_grade {
+		// Just the grade(s). We use flatten and RAW
+		/*
+			"endpoints.0.grade": "A"
+			"host": "testing.spatialkey.com"
+		*/
+		pattern := "(host|grade)$"
+		include = &pattern
+		flatten := true
+		conf_json_flat = &flatten
+	}
+
 	if *exclude != "" {
-		exclude_pattern = regexp.MustCompile(string(*exclude))
+		exclude_pattern = regexp.MustCompile(*exclude)
+		if logLevel >= LOG_DEBUG {
+			log.Printf("[DEBUG] Exclude pattern: %v", *exclude)
+		}
 	}
 
 	if *include != "" {
-		include_pattern = regexp.MustCompile(string(*include))
+		include_pattern = regexp.MustCompile(*include)
+		if logLevel >= LOG_DEBUG {
+			log.Printf("[DEBUG] Include pattern: %v", *include)
+		}
 	}
 
 	// Verify that the API entry point is a URL.
@@ -1241,7 +1266,9 @@ func main() {
 		hostnames = splitted_hostnames
 	}
 	hostnames = removeDuplicatesUnordered(hostnames)
-	log.Printf("[DEBUG] %d domain(s) found in specified input...", len(hostnames))
+	if logLevel >= LOG_DEBUG {
+		log.Printf("[DEBUG] %d domain(s) found in specified input...", len(hostnames))
+	}
 
 
 	if *conf_hostcheck {
@@ -1267,6 +1294,7 @@ func main() {
 			}
 			mapping = string(content)
 		}
+		elasticIndex = *conf_elastic_index
 		elasticClient = ConnectToElastic(conf_elastic_host, conf_elastic_index, conf_elastic_user, conf_elastic_pwd, mapping)
 	}
 
@@ -1284,54 +1312,16 @@ func main() {
 				return
 			}
 
-			if *conf_grade {
-				// Just the grade(s). We use flatten and RAW
-				/*
-					"endpoints.0.grade": "A"
-					"host": "testing.spatialkey.com"
-				*/
-				for i := range manager.results.responses {
-					results := []byte(manager.results.responses[i])
-
-					name := ""
-					grade := ""
-
-					flattened := flattenAndFormatJSON(results)
-
-					for _, fval := range *flattened {
-						if strings.HasPrefix(fval, "\"host\"") {
-							// hostname
-							parts := strings.Split(fval, ": ")
-							name = strings.TrimSuffix(parts[1], "\n")
-							if grade != "" {
-								break
-							}
-						} else if strings.HasPrefix(fval, "\"endpoints.0.grade\"") {
-							// grade
-							parts := strings.Split(fval, ": ")
-							grade = strings.TrimSuffix(parts[1], "\n")
-							if name != "" {
-								break
-							}
-						}
-					}
-					if grade != "" && name != "" {
-						fmt.Println(name + ": " + grade)
-					}
-				}
-			} else if *conf_json_flat {
+			if *conf_json_flat {
 				// Flat JSON and RAW
-
 				for i := range manager.results.responses {
-					results := []byte(manager.results.responses[i])
+					results := manager.results.responses[i]
 
-					flattened := flattenAndFormatJSON(results)
 					// Print the flattened data
-					fmt.Println(*flattened)
+					fmt.Println(results)
 				}
 			} else {
 				// Raw (non-Go-mangled) JSON output
-
 				fmt.Println("[")
 				for i := range manager.results.responses {
 					results := manager.results.responses[i]
