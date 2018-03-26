@@ -43,16 +43,16 @@ import "sync/atomic"
 import "time"
 
 const (
-	LOG_NONE     = -1
-	LOG_EMERG    = 0
-	LOG_ALERT    = 1
+	LOG_NONE	 = -1
+	LOG_EMERG	= 0
+	LOG_ALERT	= 1
 	LOG_CRITICAL = 2
-	LOG_ERROR    = 3
+	LOG_ERROR	= 3
 	LOG_WARNING  = 4
 	LOG_NOTICE   = 5
-	LOG_INFO     = 6
-	LOG_DEBUG    = 7
-	LOG_TRACE    = 8
+	LOG_INFO	 = 6
+	LOG_DEBUG	= 7
+	LOG_TRACE	= 8
 )
 
 var USER_AGENT = "ssllabs-scan v1.4.0 (stable $Id$)"
@@ -117,51 +117,51 @@ func (e LabsErrorResponse) Error() string {
 }
 
 type LabsKey struct {
-	Size       int
+	Size	   int
 	Strength   int
-	Alg        string
+	Alg		string
 	DebianFlaw bool
-	Q          int
+	Q		  int
 }
 
 type LabsCert struct {
-	Subject              string
-	CommonNames          []string
-	AltNames             []string
-	NotBefore            int64
-	NotAfter             int64
-	IssuerSubject        string
-	SigAlg               string
-	IssuerLabel          string
-	RevocationInfo       int
-	CrlURIs              []string
-	OcspURIs             []string
-	RevocationStatus     int
+	Subject			  string
+	CommonNames		  []string
+	AltNames			 []string
+	NotBefore			int64
+	NotAfter			 int64
+	IssuerSubject		string
+	SigAlg			   string
+	IssuerLabel		  string
+	RevocationInfo	   int
+	CrlURIs			  []string
+	OcspURIs			 []string
+	RevocationStatus	 int
 	CrlRevocationStatus  int
 	OcspRevocationStatus int
-	Sgc                  int
-	ValidationType       string
-	Issues               int
-	Sct                  bool
-	MustStaple           int
+	Sgc				  int
+	ValidationType	   string
+	Issues			   int
+	Sct				  bool
+	MustStaple		   int
 }
 
 type LabsChainCert struct {
-	Subject              string
-	Label                string
-	NotBefore            int64
-	NotAfter             int64
-	IssuerSubject        string
-	IssuerLabel          string
-	SigAlg               string
-	Issues               int
-	KeyAlg               string
-	KeySize              int
-	KeyStrength          int
-	RevocationStatus     int
+	Subject			  string
+	Label				string
+	NotBefore			int64
+	NotAfter			 int64
+	IssuerSubject		string
+	IssuerLabel		  string
+	SigAlg			   string
+	Issues			   int
+	KeyAlg			   string
+	KeySize			  int
+	KeyStrength		  int
+	RevocationStatus	 int
 	CrlRevocationStatus  int
 	OcspRevocationStatus int
-	Raw                  string
+	Raw				  string
 }
 
 type LabsChain struct {
@@ -170,29 +170,29 @@ type LabsChain struct {
 }
 
 type LabsProtocol struct {
-	Id               int
-	Name             string
-	Version          string
+	Id			   int
+	Name			 string
+	Version		  string
 	V2SuitesDisabled bool
-	ErrorMessage     bool
-	Q                int
+	ErrorMessage	 bool
+	Q				int
 }
 
 type LabsSimClient struct {
-	Id          int
-	Name        string
-	Platform    string
-	Version     string
+	Id		  int
+	Name		string
+	Platform	string
+	Version	 string
 	IsReference bool
 }
 
 type LabsSimulation struct {
-	Client     LabsSimClient
+	Client	 LabsSimClient
 	ErrorCode  int
 	Attempts   int
 	ProtocolId int
-	SuiteId    int
-	KxInfo     string
+	SuiteId	int
+	KxInfo	 string
 }
 
 type LabsSimDetails struct {
@@ -200,154 +200,154 @@ type LabsSimDetails struct {
 }
 
 type LabsSuite struct {
-	Id             int
-	Name           string
+	Id			 int
+	Name		   string
 	CipherStrength int
-	DhStrength     int
-	DhP            int
-	DhG            int
-	DhYs           int
-	EcdhBits       int
+	DhStrength	 int
+	DhP			int
+	DhG			int
+	DhYs		   int
+	EcdhBits	   int
 	EcdhStrength   int
-	Q              int
+	Q			  int
 }
 
 type LabsSuites struct {
-	List       []LabsSuite
+	List	   []LabsSuite
 	Preference bool
 }
 
 type LabsHstsPolicy struct {
-	LONG_MAX_AGE      int64
-	Header            string
-	Status            string
-	Error             string
-	MaxAge            int64
+	LONG_MAX_AGE	  int64
+	Header			string
+	Status			string
+	Error			 string
+	MaxAge			int64
 	IncludeSubDomains bool
-	Preload           bool
-	Directives        map[string]string
+	Preload		   bool
+	Directives		map[string]string
 }
 
 type LabsHstsPreload struct {
-	Source     string
-	Status     string
-	Error      string
+	Source	 string
+	Status	 string
+	Error	  string
 	SourceTime int64
 }
 
 type LabsHpkpPin struct {
 	HashFunction string
-	Value        string
+	Value		string
 }
 
 type LabsHpkpDirective struct {
-	Name         string
-	Value        string
+	Name		 string
+	Value		string
 }
 
 type LabsHpkpPolicy struct {
-	Header            string
-	Status            string
-	Error             string
-	MaxAge            int64
+	Header			string
+	Status			string
+	Error			 string
+	MaxAge			int64
 	IncludeSubDomains bool
-	ReportUri         string
-	Pins              []LabsHpkpPin
-	MatchedPins       []LabsHpkpPin
-	Directives        []LabsHpkpDirective
+	ReportUri		 string
+	Pins			  []LabsHpkpPin
+	MatchedPins	   []LabsHpkpPin
+	Directives		[]LabsHpkpDirective
 }
 
 type DrownHost struct {
-	Ip      string
+	Ip	  string
 	Export  bool
-	Port    int
+	Port	int
 	Special bool
 	Sslv2   bool
 	Status  string
 }
 
 type LabsEndpointDetails struct {
-	HostStartTime                  int64
-	Key                            LabsKey
-	Cert                           LabsCert
-	Chain                          LabsChain
-	Protocols                      []LabsProtocol
-	Suites                         LabsSuites
-	ServerSignature                string
-	PrefixDelegation               bool
-	NonPrefixDelegation            bool
-	VulnBeast                      bool
-	RenegSupport                   int
-	SessionResumption              int
-	CompressionMethods             int
-	SupportsNpn                    bool
-	NpnProtocols                   string
-	SessionTickets                 int
-	OcspStapling                   bool
-	StaplingRevocationStatus       int
+	HostStartTime				  int64
+	Key							LabsKey
+	Cert						   LabsCert
+	Chain						  LabsChain
+	Protocols					  []LabsProtocol
+	Suites						 LabsSuites
+	ServerSignature				string
+	PrefixDelegation			   bool
+	NonPrefixDelegation			bool
+	VulnBeast					  bool
+	RenegSupport				   int
+	SessionResumption			  int
+	CompressionMethods			 int
+	SupportsNpn					bool
+	NpnProtocols				   string
+	SessionTickets				 int
+	OcspStapling				   bool
+	StaplingRevocationStatus	   int
 	StaplingRevocationErrorMessage string
-	SniRequired                    bool
-	HttpStatusCode                 int
-	HttpForwarding                 string
-	ForwardSecrecy                 int
-	SupportsRc4                    bool
-	Rc4WithModern                  bool
-	Rc4Only                        bool
-	Sims                           LabsSimDetails
-	Heartbleed                     bool
-	Heartbeat                      bool
-	OpenSslCcs                     int
-	OpenSSLLuckyMinus20            int
-	Poodle                         bool
-	PoodleTls                      int
-	FallbackScsv                   bool
-	Freak                          bool
-	HasSct                         int
-	DhPrimes                       []string
-	DhUsesKnownPrimes              int
-	DhYsReuse                      bool
-	Logjam                         bool
-	ChaCha20Preference             bool
-	HstsPolicy                     LabsHstsPolicy
-	HstsPreloads                   []LabsHstsPreload
-	HpkpPolicy                     LabsHpkpPolicy
-	HpkpRoPolicy                   LabsHpkpPolicy
-	DrownHosts                     []DrownHost
-	DrownErrors                    bool
-	DrownVulnerable                bool
+	SniRequired					bool
+	HttpStatusCode				 int
+	HttpForwarding				 string
+	ForwardSecrecy				 int
+	SupportsRc4					bool
+	Rc4WithModern				  bool
+	Rc4Only						bool
+	Sims						   LabsSimDetails
+	Heartbleed					 bool
+	Heartbeat					  bool
+	OpenSslCcs					 int
+	OpenSSLLuckyMinus20			int
+	Poodle						 bool
+	PoodleTls					  int
+	FallbackScsv				   bool
+	Freak						  bool
+	HasSct						 int
+	DhPrimes					   []string
+	DhUsesKnownPrimes			  int
+	DhYsReuse					  bool
+	Logjam						 bool
+	ChaCha20Preference			 bool
+	HstsPolicy					 LabsHstsPolicy
+	HstsPreloads				   []LabsHstsPreload
+	HpkpPolicy					 LabsHpkpPolicy
+	HpkpRoPolicy				   LabsHpkpPolicy
+	DrownHosts					 []DrownHost
+	DrownErrors					bool
+	DrownVulnerable				bool
 }
 
 type LabsEndpoint struct {
-	IpAddress            string
-	ServerName           string
-	StatusMessage        string
+	IpAddress			string
+	ServerName		   string
+	StatusMessage		string
 	StatusDetailsMessage string
-	Grade                string
-	GradeTrustIgnored    string
-	HasWarnings          bool
-	IsExceptional        bool
-	Progress             int
-	Duration             int
-	Eta                  int
-	Delegation           int
-	Details              LabsEndpointDetails
+	Grade				string
+	GradeTrustIgnored	string
+	HasWarnings		  bool
+	IsExceptional		bool
+	Progress			 int
+	Duration			 int
+	Eta				  int
+	Delegation		   int
+	Details			  LabsEndpointDetails
 }
 
 type LabsReport struct {
-	Host            string
-	Port            int
-	Protocol        string
-	IsPublic        bool
-	Status          string
+	Host			string
+	Port			int
+	Protocol		string
+	IsPublic		bool
+	Status		  string
 	StatusMessage   string
-	StartTime       int64
-	TestTime        int64
+	StartTime	   int64
+	TestTime		int64
 	EngineVersion   string
 	CriteriaVersion string
 	CacheExpiryTime int64
-	Endpoints       []LabsEndpoint
+	Endpoints	   []LabsEndpoint
 	CertHostnames   []string
-	rawJSON         string
+	rawJSON		 string
 }
 
 type LabsResults struct {
@@ -356,12 +356,12 @@ type LabsResults struct {
 }
 
 type LabsInfo struct {
-	EngineVersion        string
-	CriteriaVersion      string
-	MaxAssessments       int
+	EngineVersion		string
+	CriteriaVersion	  string
+	MaxAssessments	   int
 	CurrentAssessments   int
 	NewAssessmentCoolOff int64
-	Messages             []string
+	Messages			 []string
 }
 
 func invokeGetRepeatedly(url string) (*http.Response, []byte, error) {
@@ -588,9 +588,9 @@ func invokeAnalyze(host string, startNew bool, fromCache bool) (*LabsReport, err
 }
 
 type Event struct {
-	host      string
+	host	  string
 	eventType int
-	report    *LabsReport
+	report	*LabsReport
 }
 
 const (
@@ -668,18 +668,18 @@ func (hp *HostProvider) retry(host string) {
 }
 
 type Manager struct {
-	hostProvider         *HostProvider
+	hostProvider		 *HostProvider
 	FrontendEventChannel chan Event
 	BackendEventChannel  chan Event
-	results              *LabsResults
+	results			  *LabsResults
 }
 
 func NewManager(hostProvider *HostProvider) *Manager {
 	manager := Manager{
-		hostProvider:         hostProvider,
+		hostProvider:		 hostProvider,
 		FrontendEventChannel: make(chan Event),
 		BackendEventChannel:  make(chan Event),
-		results:              &LabsResults{reports: make([]LabsReport, 0)},
+		results:			  &LabsResults{reports: make([]LabsReport, 0)},
 	}
 
 	go manager.run()
@@ -696,7 +696,7 @@ func (manager *Manager) run() {
 	transport := &http.Transport{
 		TLSClientConfig:   &tls.Config{InsecureSkipVerify: globalInsecure},
 		DisableKeepAlives: false,
-		Proxy:             http.ProxyFromEnvironment,
+		Proxy:			 http.ProxyFromEnvironment,
 	}
 
 	httpClient = &http.Client{Transport: transport}
@@ -770,9 +770,9 @@ func (manager *Manager) run() {
 
 					for _, endpoint := range e.report.Endpoints {
 						if endpoint.Grade != "" {
-							msg = msg + "\n    " + endpoint.IpAddress + ": " + endpoint.Grade
+							msg = msg + "\n	" + endpoint.IpAddress + ": " + endpoint.Grade
 						} else {
-							msg = msg + "\n    " + endpoint.IpAddress + ": Err: " + endpoint.StatusMessage
+							msg = msg + "\n	" + endpoint.IpAddress + ": Err: " + endpoint.StatusMessage
 						}
 					}
 
@@ -847,6 +847,11 @@ func (manager *Manager) run() {
 }
 
 func prepareData(rawJson string) (string, error) {
+
+	if !*conf_json_flat {
+		return rawJson, nil
+	}
+
 	var nested map[string]interface{}
 	err := json.Unmarshal([]byte(rawJson), &nested)
 	if err != nil {
@@ -857,16 +862,12 @@ func prepareData(rawJson string) (string, error) {
 		return "", err
 	}
 
-	if !*conf_json_flat {
-		flattened = Unflatten(flattened, SplitByDot)
-	}
-
 	flatb, err := json.Marshal(&flattened)
 	if err != nil {
 		return "", err
 	}
 
-        return string(flatb), nil
+	return string(flatb), nil
 }
 
 func parseLogLevel(level string) int {
@@ -1173,19 +1174,19 @@ func ConnectToElastic(hostname *string, index *string, username *string, passwor
 }
 
 func removeDuplicatesUnordered(elements []string) []string {
-    encountered := map[string]bool{}
+	encountered := map[string]bool{}
 
-    // Create a map of all unique elements.
-    for v:= range elements {
-        encountered[elements[v]] = true
-    }
+	// Create a map of all unique elements.
+	for v:= range elements {
+		encountered[elements[v]] = true
+	}
 
-    // Place all keys from the map into a slice.
-    result := []string{}
-    for key, _ := range encountered {
-        result = append(result, key)
-    }
-    return result
+	// Place all keys from the map into a slice.
+	result := []string{}
+	for key, _ := range encountered {
+		result = append(result, key)
+	}
+	return result
 }
 
 func main() {

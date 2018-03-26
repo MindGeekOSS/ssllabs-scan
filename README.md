@@ -38,10 +38,18 @@ OPTIONS
 | --quiet     | false         | Disable status messages (logging) |
 | --ignore-mismatch | false   | Proceed with assessments on certificate mismatch |
 | --json-flat | false         | Output results in flattened JSON format |
+| --exclude | none         | Exclude certain keys from the flattened JSON |
+| --include | none         | Include only certain keys in the flattened JSON |
 | --hostfile  | none          | File containing hosts to scan (one per line) |
 | --usecache  | false         | If true, accept cached results (if available), else force live scan |
 | --grade     | false         | Output only the hostname: grade |
 | --hostcheck | false         | If true, host resolution failure will result in a fatal error |
+| --elasticsearch | false         | If true, the output is pushed to an elasticsearch host |
+| --elastic_host | http://127.0.0.1:9200         | The URL of the elasticsearch host or cluster |
+| --elastic_index | ssllabs-scan         | The name of the elasticsearch index |
+| --elastic_user | none         | Username to connect to the elasticsearch host |
+| --elastic_pwd | none         | Password to connect to the elasticsearch host |
+| --elastic_mapping | none         | If specified, the mapping will be used when creating the elasticsearch index |
 
 ## Using behind a web Proxy
 
